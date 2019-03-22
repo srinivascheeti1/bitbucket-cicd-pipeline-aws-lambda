@@ -1,0 +1,110 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Parameters:
+  AwsAccountNumber:
+    Type: String
+    Description: Account ANumber
+  CodePath:
+    Type: String
+    Description: Code path
+  DeploymentRegion:
+    Type: String
+    Description: Region.
+  DeploymentBucket:
+    Type: String
+    Description: Deployment Bucket
+  BuildVersion:
+    Type: String
+    Description: Build version (commit)
+
+
+Resources:
+
+  CICDRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument: {
+        "Version" : "2012-10-17",
+        "Statement": [ {
+          "Effect": "Allow",
+          "Principal": {
+             "Service": [ "lambda.amazonaws.com"]
+          },
+          "Action": [ "sts:AssumeRole" ]
+        }]
+      }
+      Policies:
+        - PolicyName: "default_policy"
+          PolicyDocument: {
+            "Version": "2012-10-17",
+            "Statement": [
+              {
+                "Effect": "Allow",
+                "Action": [
+                    "logs:CreateLogGroup",
+                    "logs:CreateLogStream",
+                    "logs:PutLogEvents",
+                    "logs:DescribeLogGroups",
+                    "logs:DescribeLogStreams",
+                    "logs:TestMetricFilter"
+                ],
+                "Resource": [
+                    "*"
+                ]
+            },
+            {
+              "Effect": "Allow",
+              "Action": [
+                "s3:GetObject",
+                "s3:PutObject"
+              ],
+              "Resource": [
+                !Join ["", ["arn:aws:s3:::", !Ref DeploymentBucket]],
+                !Join ["", ["arn:aws:s3:::", !Ref DeploymentBucket, "/*"]]
+              ]
+            },
+            {
+              "Effect": "Allow",
+              "Action": [
+                "lambda:*"
+              ],
+              "Resource": "*"
+            }
+            ]
+          }
+      RoleName: "lambda-cicd-role"
+
+  CICDLambda:
+    Type: "AWS::Lambda::Function"
+    Properties:
+      Code:
+        S3Bucket: !Ref DeploymentBucket
+        S3Key: !Join ["", [!Ref CodePath,  "lambda-cicd.zip"]]
+      Description: "CICD Test Deployment"
+      FunctionName: "lambda-cicd"
+      Handler: "lambda_handler.lambda_handler"
+      MemorySize: 256
+      Role:
+        "Fn::Join":
+        - ""
+        - - "arn:aws:iam::"
+          - !Ref AwsAccountNumber
+          - ":role/lambda-cicd-role"
+      Runtime: "python3.6"
+      Timeout: 10
+      Environment:
+        Variables:
+          TEST: "TEST ENV VARIABLE"
+          BuildVersion: !Ref BuildVersion
+    DependsOn:
+    - "CICDRole"
+
+  CICDLambdaAlias:
+    Type: "AWS::Lambda::Alias"
+    Properties:
+      FunctionName: "lambda-cicd"
+      FunctionVersion: "$LATEST"
+      Name: "cicdversion"
+    DependsOn:
+    - "CICDRole"
+    - "CICDLambda"

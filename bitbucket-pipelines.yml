@@ -1,0 +1,30 @@
+image: python:3.6
+
+pipelines:
+  branches:
+    master:
+      - step:
+          caches:
+          - pip
+          name: Test deployment
+          deployment: test
+          script:
+            - echo $BITBUCKET_CLONE_DIR
+            - pip install awscli --upgrade
+            - pip install requests --target '/opt/atlassian/pipelines/agent/build/libs'
+            - pip install boto3 --target '/opt/atlassian/pipelines/agent/build/libs'
+            - aws configure set region $REGION
+            - aws configure set aws_access_key_id $AWS_ACCESS_KEY
+            - aws configure set aws_secret_access_key $AWS_SECRET_KEY
+            - aws s3 cp /opt/atlassian/pipelines/agent/build/cicd.yml s3://$S3_BUCKET/ci-cd-deployment/
+            - python /opt/atlassian/pipelines/agent/build/lambda-cicd/build_deployment_package.py
+            - aws s3 cp /opt/atlassian/pipelines/agent/build/lambda-cicd.zip s3://$S3_BUCKET/ci-cd-deployment/
+#            - aws lambda update-function-code --function-name lambda-cicd --s3-bucket $S3_BUCKET --s3-key ci-cd-deployment/lambda-cicd.zip
+            - (aws cloudformation create-stack --stack-name cicd
+              --template-url "https://s3.amazonaws.com/cicd-test-dep/ci-cd-deployment/cicd.yml" --capabilities=CAPABILITY_NAMED_IAM
+              --parameters ParameterKey="BuildVersion",ParameterValue="$BITBUCKET_COMMIT"
+              ParameterKey="AwsAccountNumber",ParameterValue="091716954317"
+              ParameterKey="CodePath",ParameterValue="ci-cd-deployment/"
+              ParameterKey="DeploymentBucket",ParameterValue="cicd-test-dep"
+              ParameterKey="DeploymentRegion",ParameterValue=$REGION)
+            - aws cloudformation wait stack-update-complete --stack-name cicd
